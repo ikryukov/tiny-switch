@@ -1,0 +1,40 @@
+# Build artifacts
+build/
+*.vvp
+*.vcd
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+*.egg
+.venv/
+venv/
+
+# Test results
+results.xml
+test/logs/log_*.txt
+
+# Simulation
+*.fst
+*.lxt
+*.lxt2
+dump.vcd
+
+# Yosys/Visualization
+*.dot
+*.svg
+*.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
