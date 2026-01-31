@@ -191,6 +191,14 @@ Set `TEST_MODE` environment variable for custom configurations:
 - `perflink`: High-speed interconnect latencies
 - `slow`: Higher latency interconnect
 
+## References
+
+- [tiny-gpu](https://github.com/adam-maj/tiny-gpu) — Inspiration for this project
+- [SHARP: In-Network Scalable Hierarchical Aggregation and Reduction Protocol](https://pmc.ncbi.nlm.nih.gov/articles/PMC7295336/)
+- [NVIDIA NVLink](https://www.nvidia.com/en-us/data-center/nvlink/)
+- [Unified Collective Communication (UCC)](https://github.com/openucx/ucc) — IB/NVLINK Sharp Collectives
+
+
 ## License
 
 Apache 2.0 - see [LICENSE](LICENSE) for details.
