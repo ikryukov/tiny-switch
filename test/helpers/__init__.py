@@ -32,6 +32,6 @@ from .runner import (
 
 from .node_memory import NodeMemoryController
 from .metrics import SwitchMetrics
-from .bf16 import float_to_bf16, bf16_to_float, bf16_sum, format_bf16
+from .bf16 import float_to_bf16, bf16_to_float, bf16_sum, format_bf16, bf16_approx_equal
 from .logger import logger
 from .config import config

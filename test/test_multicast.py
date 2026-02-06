@@ -7,95 +7,54 @@ Tests the STORE_MC command which:
 """
 
 import cocotb
-from cocotb.triggers import RisingEdge
 
-from .helpers.setup import setup, send_command, wait_response, get_signal_slice, DATA_WIDTH, RESP_TYPE_WIDTH
-from .helpers.node_memory import NodeMemoryController
-from .helpers.bf16 import float_to_bf16, bf16_to_float, format_bf16
-from .helpers.format import format_cycle
-from .helpers.logger import logger
-from .helpers.metrics import SwitchMetrics
-from .helpers.config import config
-
-
-# Command types
-CMD_STORE_MC = 2
-
-# Response types
-RESP_ACK = 1
+from .helpers import (
+    setup, send_command,
+    run_and_expect_ack, log_test_header,
+    float_to_bf16, format_bf16, bf16_approx_equal,
+    SwitchMetrics, logger,
+    CMD_STORE_MC,
+    ADDR_GROUP_ALL, ADDR_GROUP_23, NUM_NODES,
+)
 
 
 @cocotb.test()
 async def test_multicast(dut):
     """Test multicast write to all 4 nodes."""
     
-    logger.info("=" * 60)
-    logger.info("TEST: Multicast write to all nodes")
-    logger.info("=" * 60)
+    log_test_header("Multicast write to all nodes")
     
     # Initial data (zeros in all nodes)
-    initial_data = [[float_to_bf16(0.0)] for _ in range(4)]
-    
-    # Multicast address (group 0: all nodes)
-    base_addr = 0x10000000
-    
-    # Data to broadcast
+    initial_data = [[float_to_bf16(0.0)] for _ in range(NUM_NODES)]
+    base_addr = ADDR_GROUP_ALL
     broadcast_value = float_to_bf16(42.0)
     
     # Setup
     mem_ctrl = await setup(dut, node_data=initial_data, base_addr=base_addr)
     
     logger.info("Initial memory state (all zeros):")
-    for i in range(4):
+    for i in range(NUM_NODES):
         val = mem_ctrl.read(i, base_addr)
         logger.info(f"  Node {i}: value={format_bf16(val)}")
     
-    metrics = SwitchMetrics(dut, num_ports=4)
+    metrics = SwitchMetrics(dut, num_ports=NUM_NODES)
     
     # Send STORE_MC command from Node 0
     logger.info(f"Node 0: Sending STORE_MC to address {base_addr:#x} with value {format_bf16(broadcast_value)}")
     await send_command(dut, port=0, cmd=CMD_STORE_MC, addr=base_addr, data=broadcast_value, metrics=metrics)
     
-    # Run simulation until ACK or timeout
-    max_cycles = config.max_cycles
-    cycles = 0
-    response = None
-    
-    while cycles < max_cycles:
-        await mem_ctrl.run()
-        await cocotb.triggers.ReadOnly()
-        metrics.update()
-        format_cycle(dut, cycles)
-        
-        try:
-            resp_valid = dut.node_resp_valid.value.to_unsigned()
-            if resp_valid & 1:  # Check port 0
-                resp_type = get_signal_slice(dut.node_resp_type, 0, RESP_TYPE_WIDTH)
-                resp_data = get_signal_slice(dut.node_resp_data, 0, DATA_WIDTH)
-                response = (resp_type, resp_data)
-                logger.info(f"Node 0: Received response type={resp_type}")
-                break
-        except ValueError:
-            pass
-            
-        await RisingEdge(dut.clk)
-        cycles += 1
+    cycles = await run_and_expect_ack(dut, mem_ctrl, metrics, port=0)
     
     logger.info(f"Completed in {cycles} cycles")
     metrics.log_report()
     
-    # Verify ACK received
-    assert response is not None, f"No response received within {max_cycles} cycles"
-    assert response[0] == RESP_ACK, f"Expected ACK response (1), got {response[0]}"
-    
     # Verify all nodes received the broadcast value
     logger.info("Final memory state (should all be 42.0):")
-    for i in range(4):
+    for i in range(NUM_NODES):
         val = mem_ctrl.read(i, base_addr)
-        val_float = bf16_to_float(val)
         logger.info(f"  Node {i}: value={format_bf16(val)}")
-        assert abs(val_float - 42.0) < 0.1, \
-            f"Node {i} has wrong value: expected 42.0, got {val_float}"
+        assert bf16_approx_equal(val, broadcast_value), \
+            f"Node {i} has wrong value: expected {format_bf16(broadcast_value)}, got {format_bf16(val)}"
     
     logger.info("TEST PASSED: Multicast write to all nodes successful!")
 
@@ -104,9 +63,7 @@ async def test_multicast(dut):
 async def test_multicast_subset(dut):
     """Test multicast write to a subset of nodes (group 2: nodes 2,3 only)."""
     
-    logger.info("=" * 60)
-    logger.info("TEST: Multicast write to node subset (2,3)")
-    logger.info("=" * 60)
+    log_test_header("Multicast write to node subset (2,3)")
     
     # Initial data (different values to distinguish)
     initial_data = [
@@ -116,71 +73,43 @@ async def test_multicast_subset(dut):
         [float_to_bf16(4.0)],   # Node 3
     ]
     
-    # Use group 2 address (nodes 2,3 only): 0x3000_0000
-    base_addr = 0x30000000
-    
-    # Data to broadcast
+    base_addr = ADDR_GROUP_23
     broadcast_value = float_to_bf16(99.0)
     
     # Setup
     mem_ctrl = await setup(dut, node_data=initial_data, base_addr=base_addr)
     
     logger.info("Initial memory state:")
-    for i in range(4):
+    for i in range(NUM_NODES):
         val = mem_ctrl.read(i, base_addr)
         logger.info(f"  Node {i}: value={format_bf16(val)}")
     
-    metrics = SwitchMetrics(dut, num_ports=4)
+    metrics = SwitchMetrics(dut, num_ports=NUM_NODES)
     
     # Send STORE_MC from Node 0
     logger.info(f"Node 0: Sending STORE_MC to group 2 address {base_addr:#x}")
     await send_command(dut, port=0, cmd=CMD_STORE_MC, addr=base_addr, data=broadcast_value, metrics=metrics)
     
-    # Run until ACK
-    max_cycles = config.max_cycles
-    cycles = 0
-    response = None
-    
-    while cycles < max_cycles:
-        await mem_ctrl.run()
-        await cocotb.triggers.ReadOnly()
-        metrics.update()
-        
-        try:
-            resp_valid = dut.node_resp_valid.value.to_unsigned()
-            if resp_valid & 1:  # Check port 0
-                resp_type = get_signal_slice(dut.node_resp_type, 0, RESP_TYPE_WIDTH)
-                response = (resp_type, 0)
-                break
-        except ValueError:
-            pass
-            
-        await RisingEdge(dut.clk)
-        cycles += 1
+    cycles = await run_and_expect_ack(dut, mem_ctrl, metrics, port=0)
     
     logger.info(f"Completed in {cycles} cycles")
     metrics.log_report()
     
-    # Verify
-    assert response is not None, "No response received"
-    assert response[0] == RESP_ACK, f"Expected ACK, got {response[0]}"
-    
     # Check memory: nodes 0,1 should be unchanged, nodes 2,3 should have new value
     logger.info("Final memory state:")
-    for i in range(4):
+    original_values = [float_to_bf16(float(i + 1)) for i in range(NUM_NODES)]
+    for i in range(NUM_NODES):
         val = mem_ctrl.read(i, base_addr)
-        val_float = bf16_to_float(val)
         logger.info(f"  Node {i}: value={format_bf16(val)}")
         
         if i < 2:
             # Nodes 0,1 should be unchanged
-            expected = float(i + 1)
-            assert abs(val_float - expected) < 0.1, \
-                f"Node {i} was modified but shouldn't be: expected {expected}, got {val_float}"
+            assert bf16_approx_equal(val, original_values[i]), \
+                f"Node {i} was modified but shouldn't be: expected {format_bf16(original_values[i])}, got {format_bf16(val)}"
         else:
             # Nodes 2,3 should have the broadcast value
-            assert abs(val_float - 99.0) < 0.1, \
-                f"Node {i} should have 99.0, got {val_float}"
+            assert bf16_approx_equal(val, broadcast_value), \
+                f"Node {i} should have {format_bf16(broadcast_value)}, got {format_bf16(val)}"
     
     logger.info("TEST PASSED: Subset multicast write successful!")
 
@@ -189,55 +118,28 @@ async def test_multicast_subset(dut):
 async def test_multicast_from_different_port(dut):
     """Test multicast from a non-zero port."""
     
-    logger.info("=" * 60)
-    logger.info("TEST: Multicast from Port 2")
-    logger.info("=" * 60)
+    log_test_header("Multicast from Port 2")
     
-    initial_data = [[float_to_bf16(0.0)] for _ in range(4)]
-    base_addr = 0x10000000
+    initial_data = [[float_to_bf16(0.0)] for _ in range(NUM_NODES)]
+    base_addr = ADDR_GROUP_ALL
     broadcast_value = float_to_bf16(77.0)
     
     mem_ctrl = await setup(dut, node_data=initial_data, base_addr=base_addr)
-    metrics = SwitchMetrics(dut, num_ports=4)
+    metrics = SwitchMetrics(dut, num_ports=NUM_NODES)
     
     # Send from Port 2 instead of Port 0
     logger.info(f"Node 2: Sending STORE_MC")
     await send_command(dut, port=2, cmd=CMD_STORE_MC, addr=base_addr, data=broadcast_value, metrics=metrics)
     
-    # Run until ACK on port 2
-    max_cycles = config.max_cycles
-    cycles = 0
-    response = None
-    
-    while cycles < max_cycles:
-        await mem_ctrl.run()
-        await cocotb.triggers.ReadOnly()
-        metrics.update()
-        
-        try:
-            resp_valid = dut.node_resp_valid.value.to_unsigned()
-            if (resp_valid >> 2) & 1:  # Check port 2
-                resp_type = get_signal_slice(dut.node_resp_type, 2, RESP_TYPE_WIDTH)
-                response = (resp_type, 0)
-                logger.info(f"Node 2: Received ACK")
-                break
-        except ValueError:
-            pass
-            
-        await RisingEdge(dut.clk)
-        cycles += 1
+    cycles = await run_and_expect_ack(dut, mem_ctrl, metrics, port=2)
     
     logger.info(f"Completed in {cycles} cycles")
     metrics.log_report()
     
-    assert response is not None, "No response received"
-    assert response[0] == RESP_ACK, f"Expected ACK, got {response[0]}"
-    
     # All nodes should have 77.0
-    for i in range(4):
+    for i in range(NUM_NODES):
         val = mem_ctrl.read(i, base_addr)
-        val_float = bf16_to_float(val)
-        assert abs(val_float - 77.0) < 0.1, \
-            f"Node {i} has wrong value: expected 77.0, got {val_float}"
+        assert bf16_approx_equal(val, broadcast_value), \
+            f"Node {i} has wrong value: expected {format_bf16(broadcast_value)}, got {format_bf16(val)}"
     
     logger.info("TEST PASSED: Multicast from Port 2 successful!")

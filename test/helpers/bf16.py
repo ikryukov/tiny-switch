@@ -53,6 +53,20 @@ BF16_HALF = 0x3F00       # 0.5
 BF16_NEG_ONE = 0xBF80    # -1.0
 
 
+def bf16_approx_equal(a: int, b: int, tolerance: float = 0.1) -> bool:
+    """Check if two BF16 values are approximately equal.
+    
+    Args:
+        a: First BF16 value (16-bit integer)
+        b: Second BF16 value (16-bit integer)
+        tolerance: Maximum allowed difference in float representation
+        
+    Returns:
+        True if the float representations differ by less than tolerance
+    """
+    return abs(bf16_to_float(a) - bf16_to_float(b)) < tolerance
+
+
 def bf16_from_simple(value: float) -> int:
     """Convert simple float values to BF16 for testing."""
     return float_to_bf16(value)

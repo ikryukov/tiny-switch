@@ -7,39 +7,19 @@ Tests the LOAD_REDUCE command which:
 4. Switch returns the result to requesting node
 """
 
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Tuple
 
 import cocotb
-from cocotb.triggers import RisingEdge, ReadOnly
 
-from .helpers.setup import setup, send_command, get_signal_slice, DATA_WIDTH, RESP_TYPE_WIDTH
-from .helpers.bf16 import float_to_bf16, bf16_to_float, bf16_sum, format_bf16
-from .helpers.format import format_cycle
-from .helpers.logger import logger
-from .helpers.metrics import SwitchMetrics
-from .helpers.config import config
-
-
-# =============================================================================
-# Constants
-# =============================================================================
-
-# Command types
-CMD_LOAD_REDUCE = 1
-CMD_STORE_MC = 2
-
-# Response types
-RESP_DATA = 0
-RESP_ACK = 1
-
-# Multicast group addresses
-ADDR_GROUP_ALL = 0x10000000    # Group 0: all nodes
-ADDR_GROUP_01 = 0x20000000     # Group 1: nodes 0,1 only
-
-# Test parameters
-NUM_NODES = 4
-DEFAULT_VECTOR_SIZE = 8
-BF16_TOLERANCE = 0.1  # Acceptable difference for BF16 comparisons
+from .helpers import (
+    setup, send_command,
+    run_and_expect_data, run_and_expect_ack, log_test_header,
+    float_to_bf16, bf16_to_float, bf16_sum, format_bf16, bf16_approx_equal,
+    SwitchMetrics, logger, config,
+    CMD_LOAD_REDUCE, CMD_STORE_MC,
+    ADDR_GROUP_ALL, ADDR_GROUP_01,
+    NUM_NODES, DEFAULT_VECTOR_SIZE, BF16_TOLERANCE,
+)
 
 
 # =============================================================================
@@ -84,59 +64,6 @@ def compute_expected_sums(node_data: List[List[int]]) -> List[int]:
     return expected
 
 
-def bf16_approx_equal(a: int, b: int, tolerance: float = BF16_TOLERANCE) -> bool:
-    """Check if two BF16 values are approximately equal."""
-    return abs(bf16_to_float(a) - bf16_to_float(b)) < tolerance
-
-
-async def run_simulation_loop(
-    dut,
-    mem_ctrl,
-    metrics: SwitchMetrics,
-    port: int,
-    max_cycles: int = None,
-    expect_data: bool = True,
-) -> Tuple[Optional[Tuple[int, int]], int]:
-    """Run simulation loop until response received or timeout.
-    
-    Args:
-        dut: Device under test
-        mem_ctrl: Memory controller
-        metrics: Metrics tracker
-        port: Port to monitor for response
-        max_cycles: Maximum cycles to wait (default: config.max_cycles)
-        expect_data: If True, also capture response data
-        
-    Returns:
-        Tuple of (response, cycles) where response is (type, data) or None
-    """
-    if max_cycles is None:
-        max_cycles = config.max_cycles
-    
-    cycles = 0
-    while cycles < max_cycles:
-        await mem_ctrl.run()
-        await ReadOnly()
-        metrics.update()
-        
-        
-        try:
-            # Use flattened array access for response signals
-            resp_valid = dut.node_resp_valid.value.to_unsigned()
-            if (resp_valid >> port) & 1:
-                resp_type = get_signal_slice(dut.node_resp_type, port, RESP_TYPE_WIDTH)
-                resp_data = get_signal_slice(dut.node_resp_data, port, DATA_WIDTH) if expect_data else 0
-                await RisingEdge(dut.clk)  # Exit ReadOnly phase
-                return (resp_type, resp_data), cycles
-        except ValueError:
-            pass
-        
-        await RisingEdge(dut.clk)
-        cycles += 1
-    
-    return None, cycles
-
-
 def verify_results(
     actual: List[int],
     expected: List[int],
@@ -167,13 +94,6 @@ def verify_results(
     
     logger.info("-" * 60)
     return all_passed
-
-
-def log_test_header(title: str):
-    """Log a test header banner."""
-    logger.info("=" * 60)
-    logger.info(f"TEST: {title}")
-    logger.info("=" * 60)
 
 
 def log_memory_state(mem_ctrl, base_addr: int, vector_size: int = 1, 
@@ -233,14 +153,10 @@ async def test_allreduce_1_value(dut):
     logger.info(f"Node 0: Sending LOAD_REDUCE to address {ADDR_GROUP_ALL:#x}")
     await send_command(dut, port=0, cmd=CMD_LOAD_REDUCE, addr=ADDR_GROUP_ALL, metrics=metrics)
     
-    response, cycles = await run_simulation_loop(dut, mem_ctrl, metrics, port=0)
+    cycles, result = await run_and_expect_data(dut, mem_ctrl, metrics, port=0)
     
     logger.info(f"Completed in {cycles} cycles")
     metrics.log_report()
-    
-    assert response is not None, f"No response received within {config.max_cycles} cycles"
-    resp_type, result = response
-    assert resp_type == RESP_DATA, f"Expected DATA response ({RESP_DATA}), got {resp_type}"
     
     expected_bf16 = bf16_sum(test_values)
     
@@ -253,7 +169,7 @@ async def test_allreduce_1_value(dut):
     logger.info(f"  Actual:      {bf16_to_float(result):8.4f}  {format_bf16(result)}")
     
     assert bf16_approx_equal(result, expected_bf16), \
-        f"Result mismatch: expected {bf16_to_float(expected_bf16)}, got {bf16_to_float(result)}"
+        f"Result mismatch: expected {format_bf16(expected_bf16)}, got {format_bf16(result)}"
     
     logger.info("TEST PASSED: AllReduce result is correct!")
 
@@ -283,15 +199,12 @@ async def test_allreduce_subset(dut):
     metrics = SwitchMetrics(dut, num_ports=NUM_NODES)
     await send_command(dut, port=0, cmd=CMD_LOAD_REDUCE, addr=ADDR_GROUP_01, metrics=metrics)
     
-    response, cycles = await run_simulation_loop(dut, mem_ctrl, metrics, port=0)
+    cycles, result = await run_and_expect_data(dut, mem_ctrl, metrics, port=0)
     
     logger.info(f"Completed in {cycles} cycles")
     metrics.log_report()
     
-    assert response is not None, "No response received"
-    
-    result_float = bf16_to_float(response[1])
-    expected = 7.0  # 3.0 + 4.0
+    expected_bf16 = bf16_sum([test_values[0], test_values[1]])
     
     logger.info("Result verification (Group 1: Nodes 0,1 only):")
     logger.info("-" * 40)
@@ -299,11 +212,11 @@ async def test_allreduce_subset(dut):
         in_group = "(in group)" if i < 2 else "(excluded)"
         logger.info(f"  Node {i}:      {bf16_to_float(val):8.4f}  {in_group}")
     logger.info("-" * 40)
-    logger.info(f"  Expected:    {expected:8.4f}")
-    logger.info(f"  Actual:      {result_float:8.4f}")
+    logger.info(f"  Expected:    {bf16_to_float(expected_bf16):8.4f}")
+    logger.info(f"  Actual:      {bf16_to_float(result):8.4f}")
     
-    assert abs(result_float - expected) < BF16_TOLERANCE, \
-        f"Result mismatch: expected {expected}, got {result_float}"
+    assert bf16_approx_equal(result, expected_bf16), \
+        f"Result mismatch: expected {format_bf16(expected_bf16)}, got {format_bf16(result)}"
     
     logger.info("TEST PASSED: Subset AllReduce is correct!")
 
@@ -345,15 +258,9 @@ async def test_allreduce_oneshot(dut, vector_size: int = DEFAULT_VECTOR_SIZE):
         for node_id in range(NUM_NODES):
             await send_command(dut, port=node_id, cmd=CMD_LOAD_REDUCE, addr=addr, metrics=metrics)
             
-            response, cycles = await run_simulation_loop(dut, mem_ctrl, metrics, port=node_id)
+            cycles, data = await run_and_expect_data(dut, mem_ctrl, metrics, port=node_id)
             total_cycles += cycles
-            
-            assert response is not None, \
-                f"Node {node_id}: No response for element [{offset}] within {config.max_cycles} cycles"
-            assert response[0] == RESP_DATA, \
-                f"Node {node_id}: Expected DATA response for element [{offset}], got {response[0]}"
-            
-            results[node_id].append(response[1])
+            results[node_id].append(data)
         
         # Log results for this element from all nodes
         node_results = [format_bf16(results[n][offset]) for n in range(NUM_NODES)]
@@ -438,13 +345,10 @@ async def test_allreduce_twoshot(dut, vector_size: int = DEFAULT_VECTOR_SIZE):
             addr = ADDR_GROUP_ALL + offset
             await send_command(dut, port=node_id, cmd=CMD_LOAD_REDUCE, addr=addr, metrics=metrics)
             
-            response, _ = await run_simulation_loop(dut, mem_ctrl, metrics, port=node_id)
+            _, data = await run_and_expect_data(dut, mem_ctrl, metrics, port=node_id)
             
-            assert response is not None, f"Node {node_id}: No response for offset [{offset}]"
-            assert response[0] == RESP_DATA, f"Node {node_id}: Expected DATA response for offset [{offset}]"
-            
-            logger.info(f"  Node {node_id} result [{offset}]: {format_bf16(response[1])}")
-            reduced_values[(node_id, offset)] = response[1]
+            logger.info(f"  Node {node_id} result [{offset}]: {format_bf16(data)}")
+            reduced_values[(node_id, offset)] = data
     
     logger.info("Phase 1 complete: Each node has its partial reductions")
     
@@ -464,10 +368,7 @@ async def test_allreduce_twoshot(dut, vector_size: int = DEFAULT_VECTOR_SIZE):
             
             await send_command(dut, port=node_id, cmd=CMD_STORE_MC, addr=addr, data=reduced_val, metrics=metrics)
             
-            response, _ = await run_simulation_loop(dut, mem_ctrl, metrics, port=node_id, expect_data=False)
-            
-            assert response is not None, f"Node {node_id}: No ACK for multicast offset [{offset}]"
-            assert response[0] == RESP_ACK, f"Node {node_id}: Expected ACK for multicast offset [{offset}]"
+            await run_and_expect_ack(dut, mem_ctrl, metrics, port=node_id)
             
             logger.info(f"  Node {node_id}: ACK for offset [{offset}]")
     
