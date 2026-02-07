@@ -7,7 +7,7 @@ from typing import Optional, Tuple
 import cocotb
 from cocotb.triggers import RisingEdge, ReadOnly
 
-from .setup import get_signal_slice, DATA_WIDTH, RESP_TYPE_WIDTH
+from .signals import get_signal_slice, DATA_WIDTH, RESP_TYPE_WIDTH
 from .config import config
 from .logger import logger
 from .constants import RESP_DATA, RESP_ACK

@@ -10,24 +10,7 @@ from cocotb.triggers import RisingEdge, ReadOnly
 
 from .bf16 import bf16_to_float, format_bf16
 from .logger import logger
-
-
-# Signal widths (must match tswitch_pkg.sv)
-ADDR_WIDTH = 32
-DATA_WIDTH = 16
-
-
-def set_signal_slice(signal, port: int, width: int, value: int, current: int) -> int:
-    """Set a slice of a flattened packed array signal, returning new value."""
-    mask = ((1 << width) - 1) << (port * width)
-    new_val = (current & ~mask) | ((value & ((1 << width) - 1)) << (port * width))
-    return new_val
-
-
-def get_signal_slice(signal, port: int, width: int) -> int:
-    """Get a slice of a flattened packed array signal."""
-    val = signal.value.to_unsigned()
-    return (val >> (port * width)) & ((1 << width) - 1)
+from .signals import get_signal_slice, pack_signal_slice, ADDR_WIDTH, DATA_WIDTH
 
 
 class NodeMemory:
@@ -154,7 +137,7 @@ class NodeMemoryController:
                     # Return data
                     data = mem.read(addr)
                     read_data_valid_out |= (1 << node_id)
-                    read_data_out = set_signal_slice(None, node_id, DATA_WIDTH, data, read_data_out)
+                    read_data_out = pack_signal_slice(read_data_out, node_id, DATA_WIDTH, data)
                     self.pending_reads[node_id] = None
                     logger.debug(f"Node {node_id}: Read response addr={addr:08X} data={format_bf16(data)}")
                 else:

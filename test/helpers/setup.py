@@ -8,13 +8,10 @@ from cocotb.triggers import RisingEdge
 from .node_memory import NodeMemoryController
 from .logger import logger
 from .config import config
-
-
-# Signal widths (must match tswitch_pkg.sv)
-ADDR_WIDTH = 32
-DATA_WIDTH = 16
-CMD_WIDTH = 3
-RESP_TYPE_WIDTH = 2
+from .signals import (
+    set_signal_slice, get_signal_slice,
+    ADDR_WIDTH, DATA_WIDTH, CMD_WIDTH, RESP_TYPE_WIDTH,
+)
 
 
 def _get_test_name() -> str:
@@ -43,27 +40,6 @@ def _get_test_name() -> str:
         pass
     
     return "unknown"
-
-
-def set_signal_slice(signal, port: int, width: int, value: int):
-    """Set a slice of a flattened packed array signal.
-    
-    For a signal like node_cmd[(NUM_PORTS * 3) - 1:0], set bits for port i.
-    sv2v flattens [N-1:0][W-1:0] to [(N*W)-1:0], so port i is at bits [i*W +: W].
-    """
-    current = signal.value.to_unsigned() if signal.value.is_resolvable else 0
-    mask = ((1 << width) - 1) << (port * width)
-    new_val = (current & ~mask) | ((value & ((1 << width) - 1)) << (port * width))
-    signal.value = new_val
-
-
-def get_signal_slice(signal, port: int, width: int) -> int:
-    """Get a slice of a flattened packed array signal.
-    
-    For a signal like node_resp_data[(NUM_PORTS * 16) - 1:0], get bits for port i.
-    """
-    val = signal.value.to_unsigned()
-    return (val >> (port * width)) & ((1 << width) - 1)
 
 
 async def setup(

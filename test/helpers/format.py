@@ -1,6 +1,7 @@
 """Debug formatting utilities for tiny-switch tests."""
 
 from .bf16 import bf16_to_float, format_bf16
+from .constants import NUM_NODES
 from .logger import logger
 
 
@@ -53,7 +54,7 @@ def format_resp(resp: int) -> str:
 def format_node_mask(mask: int) -> str:
     """Format node mask as list of nodes."""
     nodes = []
-    for i in range(4):
+    for i in range(NUM_NODES):
         if mask & (1 << i):
             nodes.append(str(i))
     return '{' + ','.join(nodes) + '}'

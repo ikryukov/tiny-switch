@@ -67,11 +67,6 @@ def bf16_approx_equal(a: int, b: int, tolerance: float = 0.1) -> bool:
     return abs(bf16_to_float(a) - bf16_to_float(b)) < tolerance
 
 
-def bf16_from_simple(value: float) -> int:
-    """Convert simple float values to BF16 for testing."""
-    return float_to_bf16(value)
-
-
 def format_bf16(bf16: int) -> str:
     """Format BF16 value for display."""
     f = bf16_to_float(bf16)

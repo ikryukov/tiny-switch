@@ -2,7 +2,8 @@
 
 This package provides:
 - constants: Command/response type constants matching RTL
-- setup: DUT initialization and signal access helpers
+- signals: Signal access helpers for flattened packed arrays
+- setup: DUT initialization and command helpers
 - runner: Unified simulation loop functions  
 - node_memory: Simulated node memory controller
 - metrics: Performance tracking

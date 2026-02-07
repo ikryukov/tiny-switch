@@ -15,7 +15,8 @@ venv/
 
 # Test results
 results.xml
-test/logs/log_*.txt
+test/logs/
+!test/logs/.gitkeep
 
 # Simulation
 *.fst

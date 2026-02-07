@@ -1,0 +1,12 @@
+[project]
+name = "tiny-switch"
+version = "0.1.0"
+description = "In-network reduction switch with BFloat16 SUM operation"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+dependencies = [
+    "cocotb>=2.0.0,<3",
+]
+
+[tool.pytest.ini_options]
+# cocotb uses its own test runner, not pytest

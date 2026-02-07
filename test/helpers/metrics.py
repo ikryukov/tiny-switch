@@ -3,29 +3,7 @@
 from typing import Dict, List, Optional
 from .logger import logger
 from .bf16 import bf16_to_float
-
-
-# Signal widths (must match tswitch_pkg.sv)
-CMD_WIDTH = 3
-RESP_TYPE_WIDTH = 2
-
-
-def get_signal_bit(signal, port: int) -> int:
-    """Get a single bit from a multi-bit signal."""
-    try:
-        val = signal.value.to_unsigned()
-        return (val >> port) & 1
-    except ValueError:
-        return 0
-
-
-def get_signal_slice(signal, port: int, width: int) -> int:
-    """Get a slice of a flattened packed array signal."""
-    try:
-        val = signal.value.to_unsigned()
-        return (val >> (port * width)) & ((1 << width) - 1)
-    except ValueError:
-        return 0
+from .signals import get_signal_bit, get_signal_slice, CMD_WIDTH, RESP_TYPE_WIDTH
 
 
 class SwitchMetrics:
@@ -38,8 +16,6 @@ class SwitchMetrics:
     DEC_DISPATCH = 3
     DEC_WAIT = 4
     DEC_RESPOND = 5
-    
-    DEC_STATE_NAMES = ['IDLE', 'DECODE', 'LOOKUP', 'DISPATCH', 'WAIT', 'RESPOND']
     
     def __init__(self, dut, num_ports: int = 4):
         self.dut = dut
@@ -191,8 +167,8 @@ class SwitchMetrics:
                             self.multicast_latencies.append(latency)
                             self.multicast_start_cycle = None
                             
-        except Exception as e:
-            pass  # Signals might be X during reset
+        except ValueError:
+            pass  # Signals are X during reset
     
     def _get_decoder_state(self) -> Optional[int]:
         """Try to read decoder state via hierarchical access."""
